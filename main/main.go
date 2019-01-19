@@ -126,27 +126,32 @@ func handler(ctx context.Context, e events.CloudWatchEvent) error {
 		return err
 	}
 
-	name, err := ParseClusterName(detail["clusterArn"].(string))
+	arn := detail["clusterArn"].(string)
+	pretty.Log("Cluster ARN:", arn)
+
+	name, err := ParseClusterName(arn)
 	if err != nil {
 		log.Panic(err)
 	}
+	pretty.Log("Cluster name:", name)
 
 	conf := aws.Config{}
 	sess := session.Must(session.NewSession(&conf))
 	svc := ecs.New(sess)
 
+	pretty.Log("Finding cluster...")
 	cluster, err := getCluster(svc, name)
 	if err != nil {
 		log.Panic(err)
 	}
 
+	pretty.Log("Fetching domain info from tags...")
 	domainInfo, err := getDomainInfo(svc, cluster)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	pretty.Log(name)
-	pretty.Log(domainInfo)
+	pretty.Log("Domain info:", domainInfo)
 	return nil
 }
 
