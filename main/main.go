@@ -21,7 +21,7 @@ type domainInfo struct {
 }
 
 // ParseClusterName parses a cluster name from the cluster ARN
-func parseClusterName(clusterARN string) (string, error) {
+func ParseClusterName(clusterARN string) (string, error) {
 	matcher, err := regexp.Compile(":cluster/(.+)")
 	if err != nil {
 		log.Panic(err)
@@ -82,21 +82,60 @@ func getDomainInfo(svc *ecs.ECS, cluster *ecs.Cluster) (domainInfo, error) {
 	return target, nil
 }
 
+// DetailsToMap takes an array of {"name": ..., "value": ...} and turns them into a map
+func DetailsToMap(details []map[string]string) map[string]string {
+	out := map[string]string{}
+	var key string
+	var val string
+	for _, pair := range details {
+		for k, v := range pair {
+			if k == "name" {
+				key = v
+			}
+			if k == "value" {
+				val = v
+			}
+		}
+		out[key] = val
+	}
+	return out
+}
+
+// PluckNetworkInterfaceID takes an event details attachments object
+// and returns the ENI network interface ID
+func PluckNetworkInterfaceID(attachments []map[string]interface{}) (string, error) {
+	for _, att := range attachments {
+		if att["type"] != "eni" {
+			continue
+		}
+		detailsArr := att["details"].([]map[string]string)
+		details := DetailsToMap(detailsArr)
+		niid, ok := details["networkInterfaceId"]
+		if !ok {
+			return "", fmt.Errorf("details did not include networkInterfaceId")
+		}
+		return niid, nil
+	}
+	return "", fmt.Errorf("No attachment of type eni found")
+}
+
 func handler(ctx context.Context, e events.CloudWatchEvent) error {
-	pretty.Log(ctx)
-	pretty.Log(e)
-	var detail interface{}
+	var detail map[string]interface{}
 	err := json.Unmarshal(e.Detail, &detail)
 	if err != nil {
 		return err
 	}
-	pretty.Log(detail)
+
+	name, err := ParseClusterName(detail["clusterArn"].(string))
+	if err != nil {
+		log.Panic(err)
+	}
 
 	conf := aws.Config{}
 	sess := session.Must(session.NewSession(&conf))
 	svc := ecs.New(sess)
 
-	cluster, err := getCluster(svc, "test-cluster")
+	cluster, err := getCluster(svc, name)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -106,6 +145,8 @@ func handler(ctx context.Context, e events.CloudWatchEvent) error {
 		log.Panic(err)
 	}
 
+	pretty.Log(name)
+	pretty.Log(domainInfo)
 	return nil
 }
 
